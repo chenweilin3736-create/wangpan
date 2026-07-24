@@ -69,13 +69,13 @@ export async function onRequest(context) {  // Contents of context object
         }
     }
 
-    // 非分块请求：检测 Content-Length 是否超过 Worker 免费套餐 body 限制
+    // 非分块请求：文件 >= 19MB 自动路由到 LFS 分片上传
     const contentLength = parseInt(request.headers.get('Content-Length') || '0');
-    const WORKER_BODY_LIMIT = 100 * 1024 * 1024; // 100MB - CF Worker free plan body limit
-    if (!isChunked && !isMerge && contentLength > WORKER_BODY_LIMIT) {
+    const LFS_CHUNK_THRESHOLD = 19 * 1024 * 1024; // 19MB (19922944 bytes) - LFS auto chunking threshold
+    if (!isChunked && !isMerge && contentLength >= LFS_CHUNK_THRESHOLD) {
         return createResponse(JSON.stringify({
             error: 'file_too_large',
-            message: '文件大小超过 Worker 限制，请使用分片上传（chunked upload）',
+            message: '文件大小超过 19MB，请使用 LFS 分片上传（chunked upload）',
             suggestChunked: true
         }), { status: 413, headers: { 'Content-Type': 'application/json' } });
     }
@@ -623,21 +623,10 @@ async function uploadFileToDiscord(context, fullId, metadata, returnLink) {
     }
 
     const file = formdata.get('file');
-    const fileSize = file.size;
     const fileName = metadata.FileName;
 
-    // Discord 文件大小限制：Nitro 会员 25MB，免费用户 10MB
-    // 文件超限时不直接拒绝，而是跳过 Discord，让 autoRetry 选择下一个可用渠道
-    const isNitro = discordChannel.isNitro || false;
-    const DISCORD_MAX_SIZE = isNitro ? 25 * 1024 * 1024 : 10 * 1024 * 1024;
-    if (fileSize > DISCORD_MAX_SIZE) {
-        const limitMB = isNitro ? 25 : 10;
-        console.log(`Discord: file size ${(fileSize / 1024 / 1024).toFixed(1)}MB exceeds ${limitMB}MB limit, skipping to next channel`);
-        const error = new Error(`File size exceeds Discord limit (${limitMB}MB)`);
-        error.status = 413;
-        error.channelSkipped = true;
-        throw error;
-    }
+    // Discord 已取消硬编码大小限制。文件 >= 19MB 已由入口拦截自动路由到 LFS 分片上传；
+    // < 19MB 的文件直接尝试上传，若 Discord API 拒绝（如免费用户 10MB 限制），autoRetry 会切换渠道重试。
 
     const discordAPI = new DiscordAPI(discordChannel.botToken);
 
