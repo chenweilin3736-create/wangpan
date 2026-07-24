@@ -55,6 +55,15 @@ export async function handleChunkMerge(context) {
         const channelName = url.searchParams.get('channelName') || sessionInfo.channelName || '';
         context.specifiedChannelName = channelName;
 
+        // 如果 URL 中没有 uploadFolder，从会话的 relativePath 提取目录部分
+        const relativePath = sessionInfo.relativePath || '';
+        if (!url.searchParams.get('uploadFolder') && relativePath) {
+            const folder = relativePath.split('/').slice(0, -1).join('/');
+            if (folder) {
+                url.searchParams.set('uploadFolder', folder);
+            }
+        }
+
         // 检查分块上传状态
         const chunkStatuses = await checkChunkUploadStatuses(env, uploadId, totalChunks);
 

@@ -101,6 +101,17 @@ async function processFileUpload(context, formdata = null) {
     // 获取上传文件夹路径
     let uploadFolder = url.searchParams.get('uploadFolder') || '';
 
+    // 如果 uploadFolder 为空，尝试从 relativePath 获取目录部分（文件夹上传场景）
+    if (!uploadFolder) {
+        const relativePath = url.searchParams.get('relativePath') || '';
+        if (relativePath) {
+            uploadFolder = relativePath.split('/').slice(0, -1).join('/');
+            if (uploadFolder) {
+                url.searchParams.set('uploadFolder', uploadFolder);
+            }
+        }
+    }
+
     // 路径安全性处理：防止路径穿越和特殊字符注入
     uploadFolder = sanitizeUploadFolder(uploadFolder);
 

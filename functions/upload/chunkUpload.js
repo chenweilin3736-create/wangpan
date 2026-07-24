@@ -23,6 +23,9 @@ export async function initializeChunkedUpload(context) {
             return createResponse('Error: Missing initialization parameters', { status: 400 });
         }
 
+        // 获取文件夹上传的相对路径
+        const relativePath = url.searchParams.get('relativePath') || '';
+
         // 生成唯一的 uploadId
         const timestamp = Date.now();
         const random = Math.random().toString(36).slice(2, 11);
@@ -48,6 +51,7 @@ export async function initializeChunkedUpload(context) {
             totalChunks,
             uploadChannel,
             channelName,
+            relativePath,
             uploadIp,
             ipAddress,
             status: 'initialized',
