@@ -137,6 +137,40 @@ export async function handleChunkUpload(context) {
         // 立即创建分块记录，标记为"uploading"状态
         const chunkKey = `chunk_${uploadId}_${chunkIndex.toString().padStart(3, '0')}`;
         const chunkData = await chunk.arrayBuffer();
+
+        // 幂等性检查：如果分块已经上传成功，直接返回，避免重复上传
+        const existingChunkRecord = await db.getWithMetadata(chunkKey, { type: 'arrayBuffer' });
+        if (existingChunkRecord && existingChunkRecord.metadata) {
+            const existingStatus = existingChunkRecord.metadata.status;
+            if (existingStatus === 'completed') {
+                return createResponse(JSON.stringify({
+                    success: true,
+                    message: `Chunk ${chunkIndex + 1}/${totalChunks} already uploaded (idempotent)`,
+                    uploadId,
+                    chunkIndex,
+                    skipped: true
+                }), {
+                    status: 200,
+                    headers: { 'Content-Type': 'application/json' }
+                });
+            }
+            if (existingStatus === 'uploading') {
+                const uploadAge = Date.now() - (existingChunkRecord.metadata.uploadStartTime || 0);
+                if (uploadAge < 120000) {
+                    return createResponse(JSON.stringify({
+                        success: true,
+                        message: `Chunk ${chunkIndex + 1}/${totalChunks} is currently being uploaded, duplicate skipped`,
+                        uploadId,
+                        chunkIndex,
+                        skipped: true
+                    }), {
+                        status: 200,
+                        headers: { 'Content-Type': 'application/json' }
+                    });
+                }
+            }
+        }
+
         const uploadStartTime = Date.now();
         const initialChunkMetadata = {
             uploadId,
