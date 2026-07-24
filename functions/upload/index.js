@@ -69,16 +69,10 @@ export async function onRequest(context) {  // Contents of context object
         }
     }
 
-    // 非分块请求：文件 >= 19MB 自动路由到 LFS 分片上传
-    const contentLength = parseInt(request.headers.get('Content-Length') || '0');
-    const LFS_CHUNK_THRESHOLD = 19 * 1024 * 1024; // 19MB (19922944 bytes) - LFS auto chunking threshold
-    if (!isChunked && !isMerge && contentLength >= LFS_CHUNK_THRESHOLD) {
-        return createResponse(JSON.stringify({
-            error: 'file_too_large',
-            message: '文件大小超过 19MB，请使用 LFS 分片上传（chunked upload）',
-            suggestChunked: true
-        }), { status: 413, headers: { 'Content-Type': 'application/json' } });
-    }
+    // 非分块请求直接进入 processFileUpload，不再基于 Content-Length 拦截
+    // Telegram 渠道的 uploadFileToTelegram 内部会自动将 >19MB 的文件路由到分片上传
+    // Cloudflare Workers 部署注意：Workers HTTP body 限制（免费 100MB / 付费 500MB），
+    // 超大文件请使用前端分块上传（chunked mode），Docker 部署无此限制
 
     // 处理非分块文件上传
     return await processFileUpload(context);
