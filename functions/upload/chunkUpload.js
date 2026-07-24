@@ -196,6 +196,9 @@ export async function handleChunkUpload(context) {
         // 同步上传分块到存储端，添加超时保护
         await uploadChunkToStorageWithTimeout(context, chunkIndex, totalChunks, uploadId, originalFileName, originalFileType, uploadChannel, usingD1 ? chunkData : undefined);
 
+        // 分片间节流延迟，减轻Telegram速率限制压力
+        await new Promise(resolve => setTimeout(resolve, 300));
+
         return createResponse(JSON.stringify({
             success: true,
             message: `Chunk ${chunkIndex + 1}/${totalChunks} received and being uploaded`,
@@ -319,6 +322,13 @@ async function uploadChunkToStorage(context, chunkIndex, totalChunks, uploadId, 
         }
 
         for (let retry = 0; retry < MAX_RETRIES; retry++) {
+            // 指数退避延迟：第1次重试等2s，第2次等4s，第3次等8s
+            if (retry > 0) {
+                const backoffDelay = Math.min(2000 * Math.pow(2, retry - 1), 16000);
+                console.log(`Chunk ${chunkIndex} retry ${retry}/${MAX_RETRIES - 1}, waiting ${backoffDelay}ms...`);
+                await new Promise(resolve => setTimeout(resolve, backoffDelay));
+            }
+
             // 根据渠道上传分块
             let uploadResult = null;
 
@@ -1354,8 +1364,10 @@ async function uploadChunkToTelegramWithRetry(tgBotToken, tgChatId, tgProxyUrl, 
                 return null; // 最后一次尝试也失败了
             }
 
-            // 减少重试等待时间以节省CPU时间
-            await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1)));
+            // 指数退避延迟：2s / 4s / 8s
+            const backoffDelay = Math.min(2000 * Math.pow(2, attempt), 16000);
+            console.warn(`Chunk ${chunkIndex} Telegram upload retry ${attempt + 1}/${maxRetries - 1}, waiting ${backoffDelay}ms...`);
+            await new Promise(resolve => setTimeout(resolve, backoffDelay));
         }
     }
 

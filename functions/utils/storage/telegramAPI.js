@@ -22,7 +22,8 @@ export class TelegramAPI {
      * @param {string} functionType - 文件类型参数名（如：photo, document等）
      * @returns {Promise<Object>} API响应结果
      */
-    async sendFile(file, chatId, functionName, functionType, caption = '', fileName = '') {
+    async sendFile(file, chatId, functionName, functionType, caption = '', fileName = '', retryCount = 0) {
+        const MAX_RETRIES = 3;
         const formData = new FormData();
 
         formData.append('chat_id', chatId);
@@ -41,12 +42,43 @@ export class TelegramAPI {
             body: formData
         });
         console.log('Telegram API response:', response.status, response.statusText);
-        if (!response.ok) {
-            throw new Error(`Telegram API error: ${response.statusText}`);
+
+        // Handle 429 Too Many Requests (rate limiting)
+        if (response.status === 429) {
+            const retryAfter = response.headers.get('Retry-After');
+            const waitSeconds = retryAfter ? parseInt(retryAfter, 10) : 30;
+            console.warn(`Telegram 429 rate limited, waiting ${waitSeconds}s before retry ${retryCount + 1}/${MAX_RETRIES}`);
+            if (retryCount < MAX_RETRIES) {
+                await new Promise(resolve => setTimeout(resolve, waitSeconds * 1000));
+                return this.sendFile(file, chatId, functionName, functionType, caption, fileName, retryCount + 1);
+            }
+            throw new Error(`Telegram API rate limited after ${MAX_RETRIES} retries`);
         }
 
-        // 解析响应数据
-        const responseData = await response.json();
+        // Parse response body even on non-200 to check for FLOOD_WAIT
+        let responseData;
+        try {
+            responseData = await response.json();
+        } catch (e) {
+            responseData = { ok: false, description: response.statusText };
+        }
+
+        // Handle FLOOD_WAIT error (Telegram returns 200 with error_code 429)
+        if (!responseData.ok && responseData.error_code === 429) {
+            const description = responseData.description || '';
+            const floodMatch = description.match(/FLOOD_WAIT_(\d+)/);
+            const waitSeconds = floodMatch ? parseInt(floodMatch[1], 10) : 30;
+            console.warn(`Telegram FLOOD_WAIT ${waitSeconds}s, retry ${retryCount + 1}/${MAX_RETRIES}`);
+            if (retryCount < MAX_RETRIES) {
+                await new Promise(resolve => setTimeout(resolve, waitSeconds * 1000));
+                return this.sendFile(file, chatId, functionName, functionType, caption, fileName, retryCount + 1);
+            }
+            throw new Error(`Telegram FLOOD_WAIT after ${MAX_RETRIES} retries`);
+        }
+
+        if (!response.ok && !responseData.ok) {
+            throw new Error(`Telegram API error: ${responseData.description || response.statusText}`);
+        }
 
         return responseData;
     }
