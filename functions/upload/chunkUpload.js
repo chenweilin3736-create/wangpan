@@ -1,6 +1,6 @@
 /* ======= 客户端分块上传处理 ======= */
 import { createResponse, selectConsistentChannel, getUploadIp, getIPAddress, buildUniqueFileId, endUpload } from './uploadTools';
-import { TelegramAPI } from '../utils/storage/telegramAPI';
+import { TelegramAPI, createTelegramAPI } from '../utils/storage/telegramAPI';
 import { DiscordAPI } from '../utils/storage/discordAPI';
 import { S3Client, CreateMultipartUploadCommand, UploadPartCommand, AbortMultipartUploadCommand } from "@aws-sdk/client-s3";
 import { getDatabase, checkDatabaseConfig } from '../utils/databaseAdapter.js';
@@ -644,15 +644,17 @@ async function uploadSingleChunkToTelegram(context, chunkData, chunkIndex, total
         const tgChatId = tgChannel.chatId;
         const tgProxyUrl = tgChannel.proxyUrl || '';
 
+        // 创建 Telegram API 实例（自动检测多 Token 走 Token 池）
+        const tgAPI = createTelegramAPI(tgBotToken, tgProxyUrl);
+
         // 创建分块文件名
         const chunkFileName = `${originalFileName}.part${chunkIndex.toString().padStart(3, '0')}`;
         const chunkBlob = new Blob([chunkData], { type: 'application/octet-stream' });
 
-        // 上传分块到Telegram（支持代理域名）
+        // 上传分块到Telegram（支持代理域名和多Bot轮换）
         const chunkInfo = await uploadChunkToTelegramWithRetry(
-            tgBotToken,
+            tgAPI,
             tgChatId,
-            tgProxyUrl,
             chunkBlob,
             chunkFileName,
             chunkIndex,
@@ -670,7 +672,8 @@ async function uploadSingleChunkToTelegram(context, chunkData, chunkIndex, total
             size: chunkInfo.file_size,
             fileName: chunkFileName,
             uploadTime: Date.now(),
-            tgChannel: tgChannel.name
+            tgChannel: tgChannel.name,
+            botTokens: tgBotToken // 记录使用的 Token 配置，供合并阶段使用
         };
 
     } catch (error) {
@@ -1245,6 +1248,10 @@ export async function uploadLargeFileToTelegram(context, file, fullId, metadata,
     const chunks = [];
     const uploadedChunks = [];
 
+    // 创建 Telegram API 实例（自动检测多 Token 走 Token 池）
+    const tgProxyUrl = tgChannel.proxyUrl || '';
+    const tgAPI = createTelegramAPI(tgBotToken, tgProxyUrl);
+
     try {
         // 分片上传，每10个分片做一次微小延迟以避免CPU超时
         for (let i = 0; i < totalChunks; i++) {
@@ -1255,12 +1262,10 @@ export async function uploadLargeFileToTelegram(context, file, fullId, metadata,
             // 生成分片文件名
             const chunkFileName = `${fileName}.part${i.toString().padStart(3, '0')}`;
 
-            // 上传分片（带重试机制）
-            const tgProxyUrl = tgChannel.proxyUrl || '';
+            // 上传分片（带重试机制，支持多Bot轮换）
             const chunkInfo = await uploadChunkToTelegramWithRetry(
-                tgBotToken,
+                tgAPI,
                 tgChatId,
-                tgProxyUrl,
                 chunkBlob,
                 chunkFileName,
                 i,
@@ -1337,12 +1342,10 @@ export async function uploadLargeFileToTelegram(context, file, fullId, metadata,
     }
 }
 
-// 将每个分块上传至Telegram，支持失败重试（支持代理域名）
-async function uploadChunkToTelegramWithRetry(tgBotToken, tgChatId, tgProxyUrl, chunkBlob, chunkFileName, chunkIndex, totalChunks, maxRetries = 2) {
+// 将每个分块上传至Telegram，支持失败重试（支持代理域名和多Bot轮换）
+async function uploadChunkToTelegramWithRetry(tgAPI, tgChatId, chunkBlob, chunkFileName, chunkIndex, totalChunks, maxRetries = 2) {
     for (let attempt = 0; attempt < maxRetries; attempt++) {
         try {
-            const tgAPI = new TelegramAPI(tgBotToken, tgProxyUrl);
-
             const caption = `Part ${chunkIndex + 1}/${totalChunks}`;
 
             const response = await tgAPI.sendFile(chunkBlob, tgChatId, 'sendDocument', 'document', caption, chunkFileName);

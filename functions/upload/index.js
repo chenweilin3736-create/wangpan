@@ -7,7 +7,7 @@ import {
 } from "./uploadTools";
 import { initializeChunkedUpload, handleChunkUpload, uploadLargeFileToTelegram, handleCleanupRequest } from "./chunkUpload";
 import { handleChunkMerge } from "./chunkMerge";
-import { TelegramAPI } from "../utils/storage/telegramAPI";
+import { TelegramAPI, createTelegramAPI } from "../utils/storage/telegramAPI";
 import { DiscordAPI } from "../utils/storage/discordAPI";
 import { HuggingFaceAPI } from "../utils/storage/huggingfaceAPI";
 import { WebDAVAPI } from "../utils/storage/webdavAPI";
@@ -468,7 +468,7 @@ async function uploadFileToTelegram(context, fullId, metadata, fileExt, fileName
     const file = formdata.get('file');
     const fileSize = file.size;
 
-    const telegramAPI = new TelegramAPI(tgBotToken, tgProxyUrl);
+    const telegramAPI = createTelegramAPI(tgBotToken, tgProxyUrl);
 
     const CHUNK_SIZE = 19 * 1024 * 1024; // 19MB - LFS auto chunking threshold
 
