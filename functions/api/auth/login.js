@@ -33,9 +33,10 @@ export async function onRequestPost(context) {
     // 创建会话并通过 HttpOnly Cookie 返回
     const { cookie } = await createSession(env, 'user');
 
-    return new Response('Login success', {
+    return new Response(JSON.stringify({ success: true }), {
         status: 200,
         headers: {
+            'Content-Type': 'application/json',
             'Set-Cookie': cookie,
         },
     });

@@ -215,7 +215,7 @@ function buildSessionCookie(name, token, maxAge, secure = false) {
         `${name}=${token}`,
         `Path=/`,
         `HttpOnly`,
-        `SameSite=Strict`,
+        `SameSite=Lax`,
         `Max-Age=${maxAge}`,
     ];
     if (secure) {
